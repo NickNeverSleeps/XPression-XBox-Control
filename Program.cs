@@ -1,21 +1,83 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using SharpDX.XInput;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using XPression;
 
-internal class XPControl
+class XPControl
 {
-    private static void Main()
+    static Controller controller = new Controller(UserIndex.One);
+    static GamepadButtonFlags previousButtonState = GamepadButtonFlags.None;
+    static Stopwatch timer = new Stopwatch();
+    static int debounceThresholdMs = 200;
+    static Dictionary<GamepadButtonFlags, ButtonInfo> buttonStates = new Dictionary<GamepadButtonFlags, ButtonInfo>();
+
+
+
+    static void Main()
     {
+        InitializeButtonStates();
+
+        // Game loop or update loop where you read the button state
         while (true)
         {
-            Controller controller = new Controller(UserIndex.One);
             State state = controller.GetState();
-            doTasks(controller, state);
-            //Thread.Sleep(150);
+
+            foreach (var kvp in buttonStates)
+            {
+                GamepadButtonFlags button = kvp.Key;
+                ButtonInfo buttonInfo = kvp.Value;
+
+                if (state.Gamepad.Buttons != buttonInfo.PreviousButtonState)
+                {
+                    if (state.Gamepad.Buttons.HasFlag(button))
+                    {
+                        if (!buttonInfo.Timer.IsRunning)
+                        {
+                            // Start the timer on button press
+                            buttonInfo.Timer.Restart();
+                            ProcessButtonPress(state);
+                        }
+                    }
+                    else
+                    {
+                        // Reset the timer on button release
+                        buttonInfo.Timer.Reset();
+                    }
+                }
+                else if (buttonInfo.Timer.IsRunning && buttonInfo.Timer.ElapsedMilliseconds >= buttonInfo.DebounceThresholdMs)
+                {
+                    // Timer expired, process the button press
+                    buttonInfo.Timer.Stop();
+                    ProcessButtonPress(state);
+                }
+
+                buttonInfo.PreviousButtonState = state.Gamepad.Buttons;
+            }
         }
     }
 
-    private static void doTasks(Controller controller, State state)
+    static void InitializeButtonStates()
+    {
+        buttonStates.Add(GamepadButtonFlags.A, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.B, new ButtonInfo { DebounceThresholdMs = 150 });
+        buttonStates.Add(GamepadButtonFlags.X, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.Y, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.DPadLeft, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.DPadRight, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.DPadUp, new ButtonInfo { DebounceThresholdMs = 200 });
+        buttonStates.Add(GamepadButtonFlags.DPadDown, new ButtonInfo { DebounceThresholdMs = 200 });
+    }
+
+    class ButtonInfo
+    {
+        public Stopwatch Timer { get; } = new Stopwatch();
+        public GamepadButtonFlags PreviousButtonState { get; set; }
+        public int DebounceThresholdMs { get; set; }
+    }
+
+    static void ProcessButtonPress(State state)
     {
         xpEngine engine = new xpEngine();
         xpSequencer sequencer = engine.Sequencer;
@@ -59,6 +121,31 @@ internal class XPControl
             }
             newItem.SetFocus();
         }
+
+        if (state.Gamepad.Buttons.HasFlag(GamepadButtonFlags.DPadLeft))
+        {
+            xpBaseTakeItem focused;
+            xpTakeItemGroup group;
+            sequencer.GetFocusedTakeItem(out focused);
+            if (focused.GetType() == typeof(xpTakeItemGroup))
+            {
+                group = (xpTakeItemGroup)focused;
+                group.Expanded = false;
+            }
+            else
+            {
+                xpBaseTakeItem currentItem;
+                xpTakeItem intItem;
+                xpTakeItem newItem;
+                sequencer.GetFocusedTakeItem(out currentItem);
+                newItem = (xpTakeItem)currentItem;
+                newItem.GetGroup(out group);
+                group.SetFocus();
+            }
+            
+        }
+
+
         if (state.Gamepad.Buttons.HasFlag(GamepadButtonFlags.DPadUp))
         {
             xpBaseTakeItem currentItem;
